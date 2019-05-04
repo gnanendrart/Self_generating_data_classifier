@@ -1,0 +1,132 @@
+---
+title: "Self generating data classifier"
+Author: "Gnanendra Reddy Tugu Yagama Reddy"
+output:
+  word_document: default
+  pdf_document: default
+  html_notebook: default
+---
+INCLUDING THE REQUIRED LIBRARIES
+```{r}
+library(ggplot2)
+library(class)
+```
+SETTING SEED TO LAST FOUR DIGITS OF UIN
+```{r}
+set.seed(2458)
+```
+DEFINING THE REQUIRED PARAMATERS
+```{r}
+csize = 10; #number of centers
+p=2;
+s=1; #standard deviation is set to 1
+m1 = matrix(rnorm(csize*p),csize,p)*s + cbind(rep(1,csize),rep(0,csize))
+m0 = matrix(rnorm(csize*p),csize,p)*s + cbind(rep(0,csize),rep(1,csize))
+leas.k=c()
+train.error.lm=c()
+test.error.lm=c()
+test.error.knn=c()
+test.error.qr=c()
+test.error.Bayes=c()
+train.error.knn=c()
+train.error.qr=c()
+train.error.Bayes=c()
+```
+RUNNING THE ITERATION 20 TIMES
+PERFORMING LINEAR REGRESSION, QUADRATIC REGRESSION, KNN AND BAYES ERROR
+
+```{r}
+for (i in 1:20){
+  
+  #Generating Training data
+  n=100;
+  id1 = sample(1:csize,n,replace=TRUE);
+  id0 = sample(1:csize,n,replace=TRUE);
+  s=sqrt(1/5);#Standard deviation for generating x
+  traindata = matrix(rnorm(2*n*p),2*n,p)*s + rbind(m1[id1,],m0[id0,])
+  traindata<-as.data.frame(traindata)
+  #dim(traindata)
+  #str(traindata)
+  Ytrain = factor(c(rep(1,n),rep(0,n)))
+  #length(Ytrain)
+  
+  #Generating Test data
+  N=5000;
+  id1 = sample(1:csize,N,replace=TRUE);
+  id0 = sample(1:csize,N,replace=TRUE);
+  testdata = matrix(rnorm(2*N*p),2*N,p)*s + rbind(m1[id1,],m0[id0,])
+  Ytest = factor(c(rep(1,N),rep(0,N)))
+  #length(Ytest)
+  testdata<-as.data.frame(testdata)
+  
+  #Visualization
+  #plot(traindata[, 1], traindata[, 2], type = "n", xlab = "", ylab = "")
+  #points(traindata[1:n, 1], traindata[1:n, 2], col = "blue");
+  #points(traindata[(n+1):(2*n), 1], traindata[(n+1):(2*n), 2], col="red");
+  #points(m1[1:csize, 1], m1[1:csize, 2], pch="+", cex=1.5, col="blue");
+  #points(m0[1:csize, 1], m0[1:csize, 2], pch="+", cex=1.5, col="red");
+  #legend("bottomleft", pch = c(1,1), col = c("red", "blue"),
+         #legend = c("class 1", "class 0"))
+  
+  #LINEAR REGRESSION:
+  lmfit<-lm(as.numeric(Ytrain)-1~.,data=traindata)
+  train.error.lm[i] = mean(lmfit$residuals^2)
+  
+  predicted<-ifelse(predict.lm(lmfit,testdata)>0.5,1,0)
+  test.error.lm[i] <- mean((as.numeric(Ytest)-1-predicted)^2)
+  #str(lmfit)
+ 
+  #QUADRADIC REGRESSION:
+  qfit = lm(as.numeric(Ytrain)-1~ V1 + V2 + V1*V2 + I(V1^2) + I(V2^2), data=traindata)
+  train.error.qr[i] = mean(qfit$residuals^2)
+  predicted <- ifelse(predict.lm(qfit, testdata)> 0.5,1,0)
+  test.error.qr[i] = mean((as.numeric(Ytest)-1 - predicted)^2)
+  
+  #KNN
+  nfold<-10
+  infold<-sample(rep(1:nfold,length.out=length(Ytrain)))
+  allk = c(1:20,151, 101, 69, 45, 31, 21)
+  errorMatrix = matrix(NA,length(allk),nfold)
+  for( l in 1:nfold){
+    for (k in 1:length(allk)){
+      Ytrain.pred = knn(traindata[infold!=l,],traindata[infold==l,],Ytrain[infold != l],k=allk[k])
+      errorMatrix[k,l]=sum(Ytrain[infold==l]!=Ytrain.pred)/(2*nfold)
+    }
+  }
+  leas.k[i]<-allk[which.min(apply(errorMatrix,1,mean))]
+  Ytrain.pred = knn(traindata, traindata, Ytrain, k = leas.k[i])
+  train.error.knn[i] = sum(Ytrain != Ytrain.pred)/(2*n)
+  Ytest.pred = knn(traindata, testdata, Ytrain,k = leas.k[i])
+  test.error.knn[i] = sum(Ytest != Ytest.pred)/(2*N)
+  
+  ##Bayes
+  mixnorm=function(x){
+    ## return the density ratio for a point x, where each
+    ## density is a mixture of normal with 10 components
+    sum(exp(-apply((t(m1)-x)^2, 2, sum)*5/2))/sum(exp(-apply((t(m0)-x)^2, 2, sum)*5/2))
+  }
+  Ytest.pred.Bayes = apply(testdata, 1, mixnorm)
+  Ytest.pred.Bayes = as.numeric(Ytest.pred.Bayes > 1)
+  Ytrain.pred.Bayes = apply(traindata, 1, mixnorm)
+  Ytrain.pred.Bayes = as.numeric(Ytrain.pred.Bayes > 1)
+  #table(Ytest, Ytest.pred.Bayes)
+  test.error.Bayes[i] = sum(Ytest !=  Ytest.pred.Bayes) / (2*N)
+  train.error.Bayes[i] = sum(Ytrain != Ytrain.pred.Bayes) / (2*n)
+}
+```
+CREATING NEW DATASET USING THE ERRORS
+```{r}
+Error = data.frame(train.error.lm,as.numeric(test.error.lm),train.error.qr,test.error.qr,train.error.knn,test.error.knn,train.error.Bayes,test.error.Bayes)
+```
+VISUALISING USING BOX PLOT
+```{r}
+boxplot(Error,use.cols=TRUE ,col=c("BLUE","RED"))
+legend("topright",col=c("blue","red"),legend=c("Train","Test"),lty=1:2)
+```
+SUMMARY OF THE ERRORS:
+```{r}
+print("MEANS")
+colMeans(Error)
+print("STANDARD DEVIATION")
+apply(Error,2,sd)
+```
